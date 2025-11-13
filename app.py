@@ -2,8 +2,9 @@ import gradio as gr
 import os
 import time
 import arxiv
-import ollama
+from openai import OpenAI
 import chromadb
+import yaml
 from langchain_community.document_loaders import PyPDFLoader, DirectoryLoader
 from langchain.prompts import ChatPromptTemplate
 from langchain.pydantic_v1 import BaseModel
@@ -11,17 +12,31 @@ from langchain.schema.output_parser import StrOutputParser
 from langchain.schema.runnable import RunnableParallel, RunnablePassthrough
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 
+# Load configuration from config.yaml
+with open('config.yaml', 'r') as config_file:
+    config = yaml.safe_load(config_file)
+
+# Initialize LMStudio client (OpenAI-compatible API)
+lm_client = OpenAI(
+    base_url=config['lmstudio']['base_url'],
+    api_key=config['lmstudio']['api_key']
+)
+
 def process_papers(query, question_text):
-    dirpath = "arxiv_papers"
+    dirpath = config['storage']['papers_directory']
     if not os.path.exists(dirpath):
         os.makedirs(dirpath)
-    
+
     print("Starting arXiv search...")
     client = arxiv.Client()
+
+    # Determine sort order from config
+    sort_order = arxiv.SortOrder.Descending if config['arxiv']['sort_order'].lower() == 'descending' else arxiv.SortOrder.Ascending
+
     search = arxiv.Search(
         query=query,
-        max_results=20,
-        sort_order=arxiv.SortOrder.Descending
+        max_results=config['arxiv']['max_results'],
+        sort_order=sort_order
     )
 
     papers_metadata = []
@@ -55,21 +70,24 @@ def process_papers(query, question_text):
         full_text += paper.page_content
 
     print("Splitting text into chunks...")
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=config['text_processing']['chunk_size'],
+        chunk_overlap=config['text_processing']['chunk_overlap']
+    )
     paper_chunks = text_splitter.create_documents([full_text])
     print(f"Text split into {len(paper_chunks)} chunks.")
 
     print("Initializing ChromaDB...")
     client = chromadb.Client()
-    collection = client.create_collection(name="arxiv_papers")
+    collection = client.create_collection(name=config['chromadb']['collection_name'])
 
     print("Generating embeddings and storing in ChromaDB...")
     for i, chunk in enumerate(paper_chunks):
-        response = ollama.embeddings(
-            model='nomic-embed-text:latest',
-            prompt=chunk.page_content
+        response = lm_client.embeddings.create(
+            model=config['models']['embedding'],
+            input=chunk.page_content
         )
-        embedding = response["embedding"]
+        embedding = response.data[0].embedding
 
         # Ensure metadata is properly linked with text chunks
         chunk_metadata = papers_metadata[min(i, len(papers_metadata) - 1)]
@@ -92,13 +110,13 @@ def process_papers(query, question_text):
         print(f"Stored chunk {i+1} of {len(paper_chunks)}")
 
     print("Generating embedding for the query and retrieving the most relevant document...")
-    response = ollama.embeddings(
-        prompt=question_text,
-        model='nomic-embed-text:latest'
+    response = lm_client.embeddings.create(
+        model=config['models']['embedding'],
+        input=question_text
     )
     results = collection.query(
-        query_embeddings=[response["embedding"]],
-        n_results=1
+        query_embeddings=[response.data[0].embedding],
+        n_results=config['chromadb']['n_results']
     )
     
     if results and results['documents']:
@@ -123,12 +141,22 @@ def process_papers(query, question_text):
 
     references_text = "\n".join(references)
 
-    # Use the LLaMA model (llama3.1) for generating the final response
+    # Use the configured chat model for generating the final response
     prompt_text = f"Using this data: {context_data}. Respond to this prompt: {question_text}"
-    final_response = ollama.generate(
-        model='llama3.1',  # Specify the LLaMA model here
-        prompt=prompt_text
-    )['response']
+
+    # Build chat completion parameters
+    completion_params = {
+        "model": config['models']['chat'],
+        "messages": [{"role": "user", "content": prompt_text}],
+        "temperature": config['generation']['temperature']
+    }
+
+    # Add max_tokens if specified in config
+    if config['generation']['max_tokens'] is not None:
+        completion_params["max_tokens"] = config['generation']['max_tokens']
+
+    completion = lm_client.chat.completions.create(**completion_params)
+    final_response = completion.choices[0].message.content
 
     final_output = f"{final_response}\n\n**References:**\n{references_text}"
 

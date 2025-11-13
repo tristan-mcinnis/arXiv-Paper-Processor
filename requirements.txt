@@ -1,5 +1,6 @@
 gradio
 arxiv
-ollama
+openai
 chromadb
 langchain
+pyyaml

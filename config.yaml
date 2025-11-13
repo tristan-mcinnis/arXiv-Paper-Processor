@@ -1,0 +1,33 @@
+# LMStudio API Configuration
+lmstudio:
+  base_url: "http://localhost:1234/v1"
+  api_key: "lm-studio"
+
+# Model Configuration
+models:
+  embedding: "nomic-embed-text"
+  chat: "llama3.1"
+
+# Generation Settings
+generation:
+  temperature: 0.7
+  max_tokens: null  # Set to null for no limit, or specify a number
+
+# arXiv Search Settings
+arxiv:
+  max_results: 20
+  sort_order: "descending"  # Options: "descending", "ascending"
+
+# File Storage Settings
+storage:
+  papers_directory: "arxiv_papers"
+
+# Text Processing Settings
+text_processing:
+  chunk_size: 500
+  chunk_overlap: 50
+
+# Vector Database Settings
+chromadb:
+  collection_name: "arxiv_papers"
+  n_results: 1  # Number of relevant documents to retrieve
