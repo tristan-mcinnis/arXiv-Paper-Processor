@@ -4,3 +4,4 @@ openai
 chromadb
 langchain
 pyyaml
+python-dotenv
