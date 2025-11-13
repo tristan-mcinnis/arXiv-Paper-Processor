@@ -1,12 +1,41 @@
-# LMStudio API Configuration
+# AI Provider Configuration
+# Supported providers: lmstudio, openai, kimi, deepseek
+# Choose which provider to use for each task
+provider:
+  embedding: "lmstudio"  # Provider for embeddings: lmstudio, openai, kimi, deepseek
+  chat: "lmstudio"       # Provider for chat/completion: lmstudio, openai, kimi, deepseek
+
+# LMStudio Configuration (Local AI)
 lmstudio:
   base_url: "http://localhost:1234/v1"
   api_key: "lm-studio"
+  models:
+    embedding: "nomic-embed-text"
+    chat: "llama3.1"
 
-# Model Configuration
-models:
-  embedding: "nomic-embed-text"
-  chat: "llama3.1"
+# OpenAI Configuration
+openai:
+  base_url: "https://api.openai.com/v1"  # Default OpenAI endpoint
+  api_key: ""  # Add your OpenAI API key here or use OPENAI_API_KEY env var
+  models:
+    embedding: "text-embedding-3-small"  # or text-embedding-3-large, text-embedding-ada-002
+    chat: "gpt-4o-mini"  # or gpt-4o, gpt-4-turbo, gpt-3.5-turbo
+
+# Kimi (Moonshot AI) Configuration
+kimi:
+  base_url: "https://api.moonshot.cn/v1"
+  api_key: ""  # Add your Moonshot API key here or use KIMI_API_KEY env var
+  models:
+    embedding: "moonshot-v1-8k"  # Kimi doesn't have separate embedding models, uses chat for both
+    chat: "moonshot-v1-8k"  # or moonshot-v1-32k, moonshot-v1-128k
+
+# DeepSeek Configuration
+deepseek:
+  base_url: "https://api.deepseek.com"
+  api_key: ""  # Add your DeepSeek API key here or use DEEPSEEK_API_KEY env var
+  models:
+    embedding: "deepseek-chat"  # DeepSeek doesn't have separate embedding models
+    chat: "deepseek-chat"  # or deepseek-coder
 
 # Generation Settings
 generation:

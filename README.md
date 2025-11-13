@@ -30,40 +30,127 @@ This project allows you to search for academic papers on arXiv, download and pro
   pip install -r requirements.txt
   ```
 
-## LMStudio Setup
+## AI Provider Setup
 
-1. **Download and Install LMStudio**: Download LMStudio from [https://lmstudio.ai/](https://lmstudio.ai/)
+The application supports multiple AI providers for flexibility. Choose the one that best fits your needs:
+
+### Supported Providers
+
+1. **LMStudio** (Local, Free) - Run AI models locally on your machine
+2. **OpenAI** (Cloud, Paid) - GPT-4, GPT-3.5, and OpenAI embeddings
+3. **Kimi** (Cloud, Paid) - Moonshot AI's models with excellent Chinese support
+4. **DeepSeek** (Cloud, Paid) - Competitive pricing with strong performance
+
+### LMStudio Setup (Local AI - Free)
+
+1. **Download and Install LMStudio**: [https://lmstudio.ai/](https://lmstudio.ai/)
 
 2. **Load Required Models**:
-   - Open LMStudio and download the following models:
+   - Open LMStudio and download models:
      - `nomic-embed-text` (for embeddings)
-     - `llama3.1` (or your preferred LLaMA model for text generation)
+     - `llama3.1` or similar (for text generation)
 
 3. **Start the Local Server**:
    - In LMStudio, go to the "Local Server" tab
    - Click "Start Server"
-   - Ensure the server is running on `http://localhost:1234` (default port)
-   - The application uses the OpenAI-compatible API endpoint
+   - Ensure the server is running on `http://localhost:1234`
 
-4. **Verify Server**: The server should be accessible at `http://localhost:1234/v1`
+4. **Configure in config.yaml**:
+   ```yaml
+   provider:
+     embedding: "lmstudio"
+     chat: "lmstudio"
+   ```
+
+### OpenAI Setup (Cloud API)
+
+1. **Get API Key**: Sign up at [https://platform.openai.com/](https://platform.openai.com/)
+
+2. **Add API Key**:
+   - Create a `.env` file: `cp .env.example .env`
+   - Add your key: `OPENAI_API_KEY=your-key-here`
+   - Or add directly to `config.yaml`
+
+3. **Configure in config.yaml**:
+   ```yaml
+   provider:
+     embedding: "openai"
+     chat: "openai"
+
+   openai:
+     api_key: "your-key-here"  # Or use .env
+     models:
+       embedding: "text-embedding-3-small"
+       chat: "gpt-4o-mini"  # or gpt-4o, gpt-4-turbo
+   ```
+
+### Kimi (Moonshot AI) Setup
+
+1. **Get API Key**: Register at [https://platform.moonshot.cn/](https://platform.moonshot.cn/)
+
+2. **Add API Key**:
+   - Add to `.env`: `KIMI_API_KEY=your-key-here`
+   - Or add to `config.yaml`
+
+3. **Configure in config.yaml**:
+   ```yaml
+   provider:
+     embedding: "kimi"
+     chat: "kimi"
+
+   kimi:
+     api_key: "your-key-here"
+     models:
+       embedding: "moonshot-v1-8k"
+       chat: "moonshot-v1-8k"  # or moonshot-v1-32k, moonshot-v1-128k
+   ```
+
+### DeepSeek Setup
+
+1. **Get API Key**: Register at [https://platform.deepseek.com/](https://platform.deepseek.com/)
+
+2. **Add API Key**:
+   - Add to `.env`: `DEEPSEEK_API_KEY=your-key-here`
+   - Or add to `config.yaml`
+
+3. **Configure in config.yaml**:
+   ```yaml
+   provider:
+     embedding: "deepseek"
+     chat: "deepseek"
+
+   deepseek:
+     api_key: "your-key-here"
+     models:
+       embedding: "deepseek-chat"
+       chat: "deepseek-chat"  # or deepseek-coder
+   ```
+
+### Mix and Match Providers
+
+You can use different providers for embeddings and chat:
+
+```yaml
+provider:
+  embedding: "openai"      # Use OpenAI for embeddings
+  chat: "lmstudio"         # Use LMStudio for chat (save costs!)
+```
 
 ## Configuration
 
-The application uses a `config.yaml` file for easy customization of all settings. You can modify this file to change models, directories, parameters, and more without editing the code.
+The application uses a `config.yaml` file for easy customization. You can switch between providers, change models, and adjust parameters without editing code.
 
-### Configuration Options
+### Key Configuration Sections
 
+#### Provider Selection
 ```yaml
-# LMStudio API Configuration
-lmstudio:
-  base_url: "http://localhost:1234/v1"  # LMStudio server URL
-  api_key: "lm-studio"                   # API key (can be any string for local)
+provider:
+  embedding: "lmstudio"  # Which provider for embeddings
+  chat: "lmstudio"       # Which provider for chat
+```
 
-# Model Configuration
-models:
-  embedding: "nomic-embed-text"  # Model for generating embeddings
-  chat: "llama3.1"               # Model for text generation
-
+#### Processing Settings
+```yaml
 # Generation Settings
 generation:
   temperature: 0.7      # Controls randomness (0.0 = deterministic, 1.0 = creative)
@@ -73,10 +160,6 @@ generation:
 arxiv:
   max_results: 20       # Maximum number of papers to download
   sort_order: "descending"  # "descending" or "ascending"
-
-# File Storage Settings
-storage:
-  papers_directory: "arxiv_papers"  # Directory for downloaded PDFs
 
 # Text Processing Settings
 text_processing:
@@ -98,26 +181,31 @@ To customize the application:
 4. Run the application
 
 **Common Customizations:**
-- Change `models.embedding` or `models.chat` to use different models available in LMStudio
+- Change `provider.embedding` or `provider.chat` to switch AI providers
+- Adjust model names in each provider's config for different capabilities
 - Adjust `generation.temperature` to make responses more creative (higher) or deterministic (lower)
 - Increase `arxiv.max_results` to download more papers per search
 - Modify `text_processing.chunk_size` for larger or smaller text chunks
 - Change `storage.papers_directory` to store PDFs in a different location
 
-### Environment Variables (Optional)
+### Environment Variables (Recommended for API Keys)
 
-You can override configuration settings using environment variables by creating a `.env` file:
+Store sensitive API keys in a `.env` file instead of `config.yaml`:
 
 ```bash
 # Copy the example file
 cp .env.example .env
 
-# Edit .env with your values
+# Edit .env with your API keys
+OPENAI_API_KEY=sk-...
+KIMI_API_KEY=sk-...
+DEEPSEEK_API_KEY=sk-...
+
+# LMStudio (if needed)
 LMSTUDIO_BASE_URL=http://localhost:1234/v1
-LMSTUDIO_API_KEY=lm-studio
 ```
 
-Environment variables take precedence over `config.yaml` settings.
+Environment variables take precedence over `config.yaml` settings and are more secure (`.env` is in `.gitignore`).
 
 ## Usage
 
@@ -132,8 +220,10 @@ Environment variables take precedence over `config.yaml` settings.
    pip install -r requirements.txt
    ```
 
-3. **Start LMStudio Server**:
-   - Ensure LMStudio is running with the local server started (see LMStudio Setup above)
+3. **Configure AI Provider**:
+   - Edit `config.yaml` to select your provider (lmstudio, openai, kimi, or deepseek)
+   - Add API keys to `.env` file if using cloud providers
+   - If using LMStudio, ensure it's running with local server started
 
 4. **Run the Application**:
    ```bash
@@ -179,13 +269,19 @@ Real-time progress updates show:
 
 ## Troubleshooting
 
-### LMStudio Connection Issues
+### Provider Connection Issues
 
-If you get errors about LMStudio not being available:
+**For LMStudio:**
 1. Check that LMStudio is running
 2. Verify the local server is started in LMStudio
 3. Ensure the server is accessible at `http://localhost:1234`
 4. Check that your models are loaded in LMStudio
+
+**For Cloud Providers (OpenAI, Kimi, DeepSeek):**
+1. Verify your API key is correct in `.env` or `config.yaml`
+2. Check your account has credits/quota available
+3. Ensure you're not hitting rate limits
+4. Verify the model names are correct for your provider
 
 ### No Papers Found
 
@@ -236,7 +332,14 @@ This project is licensed under the MIT License. See the LICENSE file for more de
 
 ## Changelog
 
-### Version 2.0 (Latest)
+### Version 3.0 (Latest)
+- 🌐 **Multi-Provider Support**: Use OpenAI, Kimi, DeepSeek, or LMStudio
+- 🔀 **Mix & Match**: Different providers for embeddings and chat
+- 🔐 **Better Security**: API keys via environment variables
+- ⚙️ **Flexible Config**: Easy provider switching in config.yaml
+- 📚 **Provider Documentation**: Setup guides for all providers
+
+### Version 2.0
 - ✨ Enhanced Gradio UI with examples and better organization
 - 🚀 Added real-time progress tracking
 - 🛡️ Comprehensive error handling and validation

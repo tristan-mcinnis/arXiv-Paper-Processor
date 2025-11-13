@@ -7,13 +7,8 @@ import chromadb
 import yaml
 import logging
 from pathlib import Path
-from typing import Optional
 from dotenv import load_dotenv
 from langchain_community.document_loaders import PyPDFLoader, DirectoryLoader
-from langchain.prompts import ChatPromptTemplate
-from langchain.pydantic_v1 import BaseModel
-from langchain.schema.output_parser import StrOutputParser
-from langchain.schema.runnable import RunnableParallel, RunnablePassthrough
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 # Load environment variables from .env file if it exists
@@ -41,16 +36,43 @@ def load_config():
             config = yaml.safe_load(config_file)
 
         # Validate required configuration sections
-        required_sections = ['lmstudio', 'models', 'generation', 'arxiv', 'storage', 'text_processing', 'chromadb']
+        required_sections = ['provider', 'generation', 'arxiv', 'storage', 'text_processing', 'chromadb']
         for section in required_sections:
             if section not in config:
                 raise ValueError(f"Missing required configuration section: {section}")
 
-        # Allow environment variables to override config
-        config['lmstudio']['base_url'] = os.getenv('LMSTUDIO_BASE_URL', config['lmstudio']['base_url'])
-        config['lmstudio']['api_key'] = os.getenv('LMSTUDIO_API_KEY', config['lmstudio']['api_key'])
+        # Validate provider sections exist
+        supported_providers = ['lmstudio', 'openai', 'kimi', 'deepseek']
+        for provider_type in ['embedding', 'chat']:
+            provider_name = config['provider'][provider_type]
+            if provider_name not in supported_providers:
+                raise ValueError(f"Unsupported provider '{provider_name}' for {provider_type}")
+            if provider_name not in config:
+                raise ValueError(f"Configuration for provider '{provider_name}' not found")
+
+        # Allow environment variables to override config for each provider
+        # LMStudio
+        if 'lmstudio' in config:
+            config['lmstudio']['base_url'] = os.getenv('LMSTUDIO_BASE_URL', config['lmstudio']['base_url'])
+            config['lmstudio']['api_key'] = os.getenv('LMSTUDIO_API_KEY', config['lmstudio']['api_key'])
+
+        # OpenAI
+        if 'openai' in config:
+            config['openai']['base_url'] = os.getenv('OPENAI_BASE_URL', config['openai']['base_url'])
+            config['openai']['api_key'] = os.getenv('OPENAI_API_KEY', config['openai']['api_key'])
+
+        # Kimi
+        if 'kimi' in config:
+            config['kimi']['base_url'] = os.getenv('KIMI_BASE_URL', config['kimi']['base_url'])
+            config['kimi']['api_key'] = os.getenv('KIMI_API_KEY', config['kimi']['api_key'])
+
+        # DeepSeek
+        if 'deepseek' in config:
+            config['deepseek']['base_url'] = os.getenv('DEEPSEEK_BASE_URL', config['deepseek']['base_url'])
+            config['deepseek']['api_key'] = os.getenv('DEEPSEEK_API_KEY', config['deepseek']['api_key'])
 
         logger.info("Configuration loaded successfully")
+        logger.info(f"Using {config['provider']['embedding']} for embeddings and {config['provider']['chat']} for chat")
         return config
     except Exception as e:
         logger.error(f"Error loading configuration: {e}")
@@ -58,27 +80,59 @@ def load_config():
 
 config = load_config()
 
-# Initialize LMStudio client (OpenAI-compatible API)
-def initialize_lm_client():
-    """Initialize and test LMStudio client connection"""
+# Initialize AI clients
+def get_client(provider_name: str):
+    """
+    Get an OpenAI-compatible client for the specified provider
+
+    Args:
+        provider_name: Name of the provider (lmstudio, openai, kimi, deepseek)
+
+    Returns:
+        OpenAI client configured for the provider
+    """
     try:
+        provider_config = config[provider_name]
+        base_url = provider_config['base_url']
+        api_key = provider_config['api_key']
+
+        if not api_key and provider_name != 'lmstudio':
+            logger.warning(f"No API key configured for {provider_name}. Set it in config.yaml or use environment variables.")
+
         client = OpenAI(
-            base_url=config['lmstudio']['base_url'],
-            api_key=config['lmstudio']['api_key']
+            base_url=base_url,
+            api_key=api_key if api_key else "dummy-key"  # Some providers need a key even if not used
         )
-        # Test connection by listing models
-        try:
-            client.models.list()
-            logger.info("Successfully connected to LMStudio")
-        except Exception as e:
-            logger.warning(f"Could not verify LMStudio connection: {e}")
-            logger.warning("Make sure LMStudio server is running before processing papers")
+
+        logger.info(f"Initialized client for {provider_name} at {base_url}")
         return client
+
     except Exception as e:
-        logger.error(f"Error initializing LMStudio client: {e}")
+        logger.error(f"Error initializing {provider_name} client: {e}")
         raise
 
-lm_client = initialize_lm_client()
+def get_model_name(provider_name: str, model_type: str) -> str:
+    """
+    Get the model name for a specific provider and model type
+
+    Args:
+        provider_name: Name of the provider
+        model_type: Type of model (embedding or chat)
+
+    Returns:
+        Model name string
+    """
+    return config[provider_name]['models'][model_type]
+
+# Initialize clients based on configuration
+embedding_provider = config['provider']['embedding']
+chat_provider = config['provider']['chat']
+
+embedding_client = get_client(embedding_provider)
+chat_client = get_client(chat_provider)
+
+logger.info(f"Embedding provider: {embedding_provider} with model {get_model_name(embedding_provider, 'embedding')}")
+logger.info(f"Chat provider: {chat_provider} with model {get_model_name(chat_provider, 'chat')}")
 
 def is_paper_downloaded(paper_id: str, dirpath: str) -> bool:
     """Check if a paper is already downloaded"""
@@ -232,13 +286,15 @@ def process_papers(query, question_text, progress=gr.Progress()):
         try:
             # Batch embeddings for better performance
             batch_size = 10
+            embedding_model = get_model_name(embedding_provider, 'embedding')
+
             for i in range(0, len(paper_chunks), batch_size):
                 batch = paper_chunks[i:i + batch_size]
                 batch_texts = [chunk.page_content for chunk in batch]
 
                 # Generate embeddings for batch
-                response = lm_client.embeddings.create(
-                    model=config['models']['embedding'],
+                response = embedding_client.embeddings.create(
+                    model=embedding_model,
                     input=batch_texts
                 )
 
@@ -272,15 +328,16 @@ def process_papers(query, question_text, progress=gr.Progress()):
 
         except Exception as e:
             logger.error(f"Error generating embeddings: {e}")
-            return f"❌ Error generating embeddings. Is LMStudio running? Error: {str(e)}"
+            return f"❌ Error generating embeddings with {embedding_provider}. Check your API key and connection. Error: {str(e)}"
 
         # Step 6: Query for relevant documents
         progress(0.85, desc="Finding relevant information...")
         logger.info("Generating embedding for the query and retrieving relevant documents...")
 
         try:
-            response = lm_client.embeddings.create(
-                model=config['models']['embedding'],
+            embedding_model = get_model_name(embedding_provider, 'embedding')
+            response = embedding_client.embeddings.create(
+                model=embedding_model,
                 input=question_text
             )
             results = collection.query(
@@ -289,7 +346,7 @@ def process_papers(query, question_text, progress=gr.Progress()):
             )
         except Exception as e:
             logger.error(f"Error querying documents: {e}")
-            return f"❌ Error searching documents: {str(e)}"
+            return f"❌ Error searching documents with {embedding_provider}: {str(e)}"
 
         if results and results['documents'] and results['documents'][0]:
             context_data = results['documents'][0][0]
@@ -319,8 +376,9 @@ def process_papers(query, question_text, progress=gr.Progress()):
         try:
             prompt_text = f"Using this data: {context_data}. Respond to this prompt: {question_text}"
 
+            chat_model = get_model_name(chat_provider, 'chat')
             completion_params = {
-                "model": config['models']['chat'],
+                "model": chat_model,
                 "messages": [{"role": "user", "content": prompt_text}],
                 "temperature": config['generation']['temperature']
             }
@@ -328,12 +386,12 @@ def process_papers(query, question_text, progress=gr.Progress()):
             if config['generation']['max_tokens'] is not None:
                 completion_params["max_tokens"] = config['generation']['max_tokens']
 
-            completion = lm_client.chat.completions.create(**completion_params)
+            completion = chat_client.chat.completions.create(**completion_params)
             final_response = completion.choices[0].message.content
 
         except Exception as e:
             logger.error(f"Error generating response: {e}")
-            return f"❌ Error generating response. Is LMStudio running with the correct model? Error: {str(e)}"
+            return f"❌ Error generating response with {chat_provider}. Check your API key and connection. Error: {str(e)}"
 
         final_output = f"{final_response}\n\n**References:**\n{references_text}"
 
@@ -406,19 +464,22 @@ with gr.Blocks(title="arXiv Paper Processor", theme=gr.themes.Soft()) as iface:
         5. **Query**: Finds most relevant content for your question
         6. **Generate**: Uses LLM to create a comprehensive answer with citations
 
-        **Note**: Make sure LMStudio is running with the models specified in config.yaml
+        **Note**: Make sure your AI provider is configured correctly. If using LMStudio, ensure it's running. For cloud providers (OpenAI, Kimi, DeepSeek), ensure your API keys are set.
         """)
 
     with gr.Accordion("⚙️ Current Configuration", open=False):
         gr.Markdown(f"""
-        - **Embedding Model**: `{config['models']['embedding']}`
-        - **Chat Model**: `{config['models']['chat']}`
+        **AI Providers:**
+        - **Embedding Provider**: `{embedding_provider}` using model `{get_model_name(embedding_provider, 'embedding')}`
+        - **Chat Provider**: `{chat_provider}` using model `{get_model_name(chat_provider, 'chat')}`
+
+        **Processing Settings:**
         - **Max Papers**: {config['arxiv']['max_results']}
         - **Chunk Size**: {config['text_processing']['chunk_size']}
         - **Temperature**: {config['generation']['temperature']}
         - **Storage Directory**: `{config['storage']['papers_directory']}`
 
-        Edit `config.yaml` to change these settings.
+        Edit `config.yaml` to change these settings or switch providers.
         """)
 
     submit_btn.click(
